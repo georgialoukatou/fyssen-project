@@ -1,0 +1,67 @@
+---
+title: "spacy_regression"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r clean data}
+library(tidyverse)
+
+english<-read.csv("/Users/lscpuser/Documents/fyssen-project/Providence_spacy.csv")
+french <-read.csv("/Users/lscpuser/Documents/fyssen-project/Lyon_spacy.csv")
+
+english<-english %>% mutate(language="English")
+french<-french %>% mutate(language="French")
+
+CHILDES<- rbind(english, french)
+
+CHILDES<-CHILDES %>% filter (speaker_code != "CHI") #remove target child utterances
+
+annot <- c("xxx", "yyy", "www", "-")
+annotUtt <- filter(CHILDES, lemma %in% annot) 
+annotUttID<- unique(annotUtt$utterance_id) 
+CHILDES <- filter(CHILDES, !(utterance_id  %in% annotUttID))  #remove utterances with annotations - incomplete information #la-bas/haut en francais 
+ 
+CHILDES<-CHILDES %>% filter (pos != "PUNCT")  #remove punctuation 
+
+```
+
+
+
+You can also embed plots, for example:
+
+```{r group and summarise}
+CHILDES_frequency<- CHILDES %>%  group_by(lemma, language) %>% summarize(CountLemma=n())
+SumLangLemmaItem<-CHILDES_frequency %>%  group_by(language) %>% summarize(SumLangLemmaItem=sum(CountLemma))
+CHILDES_frequency<-CHILDES_frequency %>% left_join(SumLangLemmaItem)
+CHILDES_frequency<-CHILDES_frequency %>% mutate (Frequency = CountLemma / SumLangLemmaItem)
+
+CHILDES_frequency<-CHILDES_frequency %>% mutate (FrequencyLog =log(Frequency)+1)
+CHILDES_frequency %>% arrange(desc(FrequencyLog))
+
+
+```
+
+```{r modeling frequency}
+#compare raw frequency estimates vs model derived frequency estimates. Mixed effects regression with frequency looking at corpus size, and intercept is the log odds of the word. Keep track of this variance!
+```
+
+
+```{r regression}
+#Option 1 : linear regression
+aoa ~ freq + predictors 
+data=data %>% group_by(word) %>% summarise(aoa=get_aoa)
+
+#Option 2 : logistic mixed effects 
+produces ~ age * freq + (age * freq | word)
+data = data
+```

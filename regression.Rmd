@@ -1,0 +1,104 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+library(childesr)
+library(wordbankr)
+```
+
+
+```{r}
+#####
+d_participants <- get_participants(age = c(0, 17), collection="Eng-NA")
+target_child_<- d_participants %>% distinct (target_child_name)
+
+CHILDES_token_counts<-get_types(collection="Eng-NA") 
+token_counts<-target_child  %>%  left_join(CHILDES_token_counts)
+head(token_counts)
+
+count_total <- aggregate(token_counts$count, by=list(token_counts=token_counts$target_child_id), FUN=sum) 
+names(count_total)[1]<-"target_child_id"
+names(count_total)[2]<-"total_counts"
+######
+
+
+
+
+```
+Get_types gives a "count" column. What exact frequency is counted for? All speakers + target child?
+
+Frequency : average across target children or across the whole english corpus? 
+
+```{r}
+
+merge(token_counts, count_total, by="target_child_id")-> token_counts
+token_counts <-as.data.frame(token_counts) %>% mutate (prop = count / total_counts)
+
+mean_ <- aggregate(token_counts$prop, by=list(token_counts=token_counts$gloss), FUN=sum) 
+names(mean_)[1]<-"gloss"
+names(mean_)[2]<-"mean_freq"
+mean_ %>% arrange(desc(mean_freq))
+
+#Laplace smoothing?
+mean_$mean_freq2<-(log(mean_$mean_freq)+1)
+
+merge(token_counts, mean_, by="gloss")-> CHILDES_token_counts
+unique(CHILDES_token_counts$gloss)
+CHILDES_token_counts_distinct <- CHILDES_token_counts[!duplicated(CHILDES_token_counts$gloss),]
+
+```
+Lemmas: dog dog's doggy different lemmas..
+
+
+```{r}
+#WB_tokens<- get_item_data(language = "English (American)", form = "WS")
+data <- get_instrument_data(language = "English (American)", form = "WS", items = WB_tokens$item_id, administrations = TRUE, iteminfo=TRUE)
+
+
+data<- data[data$age == '17',] ###specific age
+#aoa<- fit_aoa(data, measure = "produces", method = "glmrob", proportion = 0.5)
+unique(data$value)
+
+data<-data %>% group_by(item_id, age) %>% dplyr::mutate(count_admins = n())
+data<-data %>% group_by(item_id, age, value=="produces") %>% dplyr::mutate(count_produced = n())
+WB_data<- data %>% mutate (prob_produced = count_produced / count_admins)
+names(WB_data)[names(WB_data) == "definition"] <- "gloss"
+head(WB_data)
+#data <- data %>% left_join(aoa)
+##########################################
+
+```
+Variable "value" includes: produces never, often, sometimes, simple, complex.
+What is data_id? (token id, administration id..)
+
+
+
+```{r}
+merge(WB_data, CHILDES_token_counts_distinct, by="gloss")-> valuesRegression 
+
+valuesRegression <- valuesRegression[!is.na(valuesRegression$value),]
+valuesRegression <- unique(valuesRegression)
+##########################################
+valuesRegression$value[valuesRegression$value == 'produces'] <- '1'
+valuesRegression$value[valuesRegression$value == 'sometimes'] <- '1'
+valuesRegression$value[valuesRegression$value == 'often'] <- '1'
+valuesRegression$value[valuesRegression$value == ''] <- '0'
+valuesRegression$value[valuesRegression$value == 'not yet'] <- '0'
+
+
+m <- glmer(as.factor(`value == "produces"`) ~ mean_freq2 +(1 | target_child_id) + (1 | gloss)  , data = valuesRegression, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+
+qplot( x = valuesRegression$mean_freq2, fill = valuesRegression$`value == "produces"`, geom = "histogram", main = "Frequency distribution for WB items at 17 months",  xlab = "Frequency of WB items")
+
+
+```
+Logistic Regression
+
+Merge CHILDESbd and WB based on gloss (strings-word tokens)? Not item_id in childes-db
+
