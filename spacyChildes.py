@@ -3,7 +3,7 @@ import spacy
 import numpy as np
 import childespy
 #python -m spacy download en_core_web_lg in the environment
-
+#script by Stephen
 
 nlp = spacy.load("en_core_web_lg")
 
