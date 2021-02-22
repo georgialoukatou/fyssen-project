@@ -9,59 +9,189 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## R Markdown
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+Load databases
 
 ```{r clean data}
 library(tidyverse)
+library(feather)
 
-english<-read.csv("/Users/lscpuser/Documents/fyssen-project/Providence_spacy.csv")
-french <-read.csv("/Users/lscpuser/Documents/fyssen-project/Lyon_spacy.csv")
 
-english<-english %>% mutate(language="English")
-french<-french %>% mutate(language="French")
+providence<-read.csv("/Users/lscpuser/Documents/fyssen-project/Providence_spacy.csv")
+lyon <-read_csv("/Users/lscpuser/Documents/fyssen-project/Lyon_spacy.csv")
+paris <-read_csv("/Users/lscpuser/Documents/fyssen-project/Paris_spacy.csv")
+antelmi<-read_csv("/Users/lscpuser/Documents/fyssen-project/Antelmi_spacy.csv")
+calambrone<-read_csv("/Users/lscpuser/Documents/fyssen-project/Calambrone_spacy.csv")
+roma<-read_csv("/Users/lscpuser/Documents/fyssen-project/Roma_spacy.csv")
+tonelli<-read_csv("/Users/lscpuser/Documents/fyssen-project/Tonelli_spacy.csv")
+mtln<-read_csv("/Users/lscpuser/Documents/fyssen-project/MTLN_spacy.csv")
+yamaguchi<-read_csv("/Users/lscpuser/Documents/fyssen-project/Yamaguchi_spacy.csv")
+goadrose<-read_csv("/Users/lscpuser/Documents/fyssen-project/Goadrose_spacy.csv")
 
-CHILDES<- rbind(english, french)
+```
 
+```{r group and summarise}
+
+
+englishTotal <- rbind(providence)
+englishTotal <-englishTotal %>% mutate(language="NAEnglish")
+
+frenchTotal<- rbind(lyon, paris)
+frenchTotal<-frenchTotal %>% mutate(language="French")
+
+italianTotal<-rbind(antelmi)
+italianTotal<-italianTotal %>% mutate(language="Italian")
+
+```
+
+
+
+
+```{r clean}
+
+CHILDES<-rbind(englishTotal, frenchTotal, italianTotal)
 CHILDES<-CHILDES %>% filter (speaker_code != "CHI") #remove target child utterances
 
-annot <- c("xxx", "yyy", "www", "-")
+annot <- c("xxx", "yyy", "www", "-", "'")
 annotUtt <- filter(CHILDES, lemma %in% annot) 
 annotUttID<- unique(annotUtt$utterance_id) 
-CHILDES <- filter(CHILDES, !(utterance_id  %in% annotUttID))  #remove utterances with annotations - incomplete information #la-bas/haut en francais 
+CHILDES <- filter(CHILDES, !(utterance_id  %in% annotUttID))  #remove utterances with annotations - incomplete info
  
 CHILDES<-CHILDES %>% filter (pos != "PUNCT")  #remove punctuation 
 
+CHILDES$lemma<-tolower(CHILDES$lemma)
+
+
 ```
 
 
 
-You can also embed plots, for example:
 
-```{r group and summarise}
-CHILDES_frequency<- CHILDES %>%  group_by(lemma, language) %>% summarize(CountLemma=n())
-SumLangLemmaItem<-CHILDES_frequency %>%  group_by(language) %>% summarize(SumLangLemmaItem=sum(CountLemma))
-CHILDES_frequency<-CHILDES_frequency %>% left_join(SumLangLemmaItem)
-CHILDES_frequency<-CHILDES_frequency %>% mutate (Frequency = CountLemma / SumLangLemmaItem)
+```{r raw frequency}
+#Count each lemma and sum of lemmas for each target child
+CHILDES_frequency<- CHILDES %>%  group_by(lemma, target_child_id, language) %>% summarize(CountLemma=n())
+CountAllLemmas<-CHILDES_frequency %>%  group_by(target_child_id, language) %>% summarize(CountAllLemmasChild=sum(CountLemma))
+CHILDES_frequency<-CHILDES_frequency %>% left_join(CountAllLemmas)
 
-CHILDES_frequency<-CHILDES_frequency %>% mutate (FrequencyLog =log(Frequency)+1)
+
+#Measure frequency
+CHILDES_frequency<-CHILDES_frequency %>% mutate (rawFrequency = CountLemma / CountAllLemmasChild)
+CHILDES_frequency %>% group_by(target_child_id) %>% summarize (sum(rawFrequency)) #should be 1
+
+```
+
+```{r more frequency}
+CHILDES_frequency<-CHILDES_frequency %>% mutate (FrequencyLog =log(1+ rawFrequency * 100))
 CHILDES_frequency %>% arrange(desc(FrequencyLog))
 
-
+CHILDES_frequency1<- CHILDES_frequency %>%  group_by(lemma, language) %>% summarize(FrequencyLogMean=mean(FrequencyLog))
+CHILDES_frequency <- CHILDES_frequency %>% left_join(CHILDES_frequency1) 
 ```
 
 ```{r modeling frequency}
-#compare raw frequency estimates vs model derived frequency estimates. Mixed effects regression with frequency looking at corpus size, and intercept is the log odds of the word. Keep track of this variance!
+
+CHILDES_frequency$intercept <-NA
+
+
+eng_frequency <-CHILDES_frequency  %>% filter (language=="NAEnglish")
+
+#loop lemmas and fit model for intercept 
+for (i in unique(eng_frequency$lemma)) {
+eng_frequency$intercept<-ifelse(eng_frequency$lemma ==i, coef(lm(FrequencyLog ~ CountAllLemmasChild  + (1|target_child_id), data=eng_frequency  %>% filter (lemma==i)))["(Intercept)"], eng_frequency$intercept) }
+
+#french
+fr_frequency <-CHILDES_frequency  %>% filter (language=="French")
+
+for (i in unique(fr_frequency$lemma)) {
+fr_frequency$intercept<-ifelse(fr_frequency$lemma ==i, coef(lm(FrequencyLog ~ CountAllLemmasChild  + (1|target_child_id), data=fr_frequency  %>% filter (lemma==i)))["(Intercept)"], fr_frequency$intercept) }
+
+#italian
+it_frequency <-CHILDES_frequency  %>% filter (language=="Italian")
+
+for (i in unique(it_frequency$lemma)) {
+it_frequency$intercept<-ifelse(it_frequency$lemma ==i, coef(lm(FrequencyLog ~ CountAllLemmasChild  + (1|target_child_id), data=it_frequency  %>% filter (lemma==i)))["(Intercept)"], it_frequency$intercept) }
+
+
+
+
+
+
+
 ```
+
 
 
 ```{r regression}
-#Option 1 : linear regression
-aoa ~ freq + predictors 
-data=data %>% group_by(word) %>% summarise(aoa=get_aoa)
 
-#Option 2 : logistic mixed effects 
-produces ~ age * freq + (age * freq | word)
-data = data
+language_="English (American)"
+
+#Option 1 : linear regression per language
+WB_tokens<- get_item_data(language = language_, form = "WS")
+WB_tokens<-WB_tokens %>% filter (type == "word")  #remove grammar
+
+data <- get_instrument_data(language =language_, form = "WS", items = WB_tokens$item_id, administrations = TRUE, iteminfo=TRUE)
+
+aoa<- fit_aoa(data, measure = "produces", method = "glmrob", proportion = 0.7) # 145 NAs out of 680
+summary(aoa$aoa)
+nrow(aoa)
+names(aoa)[names(aoa) == "definition"] <- "lemma"
+
+
 ```
+
+##########################################
+
+```{r merge aoa and childes}
+
+names(data)[names(data) == "definition"] <- "lemma"
+
+dataAoa <- unique(data) %>% left_join(unique(aoa)) 
+
+eng_frequency1 <- eng_frequency %>% ungroup() %>% select(lemma, language, FrequencyLogMean, intercept)
+eng_frequency1 <- unique(eng_frequency1)
+
+CHILDES_WB <- merge(x=dataAoa, y=eng_frequency1, by="lemma") 
+CHILDES_WB <- CHILDES_WB[!is.na(CHILDES_WB$value), ] 
+
+CHILDES_WB_short <- CHILDES_WB%>% select(lemma, FrequencyLogMean, intercept, lexical_category, aoa, num_item_id) 
+CHILDES_WB_short <- unique(CHILDES_WB_short)
+CHILDES_WB_short
+CHILDES_WB_short <- CHILDES_WB_short[!is.na(CHILDES_WB_short$aoa), ] # 565 -> 443 after removing NA aoas
+#noun, verb, adj/adv, fw 
+```
+
+##########################################
+
+```{r plot}
+library(gridExtra)
+
+nouns<-ggplot(CHILDES_WB_short  %>% filter (lexical_category=="nouns"), aes(FrequencyLogMean, aoa, label=lemma)) + geom_point()  +geom_text(aes(label=lemma),hjust=0, vjust=0) + ggtitle("Nouns:Mean log frequency")
+
+verbs<-ggplot(CHILDES_WB_short  %>% filter (lexical_category=="predicates"), aes(FrequencyLogMean, aoa, label=lemma)) + geom_point()  +geom_text(aes(label=lemma),hjust=0, vjust=0) + ggtitle("Predicates:Mean log frequency")
+
+fw<- ggplot(CHILDES_WB_short  %>% filter (lexical_category=="function_words"), aes(FrequencyLogMean, aoa, label=lemma)) + geom_point()  +geom_text(aes(label=lemma),hjust=0, vjust=0) + ggtitle("Function_words:Mean log frequency")
+
+nounsi<-ggplot(CHILDES_WB_short  %>% filter (lexical_category=="nouns"), aes(intercept, aoa, label=lemma)) + geom_point()  +geom_text(aes(label=lemma),hjust=0, vjust=0) + ggtitle("Nouns:intercept frequency")
+
+verbsi<-ggplot(CHILDES_WB_short  %>% filter (lexical_category=="predicates"), aes(intercept, aoa, label=lemma)) + geom_point()  +geom_text(aes(label=lemma),hjust=0, vjust=0) + ggtitle("Predicates:intercept frequency")
+
+fwi<- ggplot(CHILDES_WB_short  %>% filter (lexical_category=="function_words"), aes(intercept, aoa, label=lemma)) + geom_point()  +geom_text(aes(label=lemma),hjust=0, vjust=0) + ggtitle("Function_words:intercept frequency")
+
+grid.arrange(nouns, verbs, fw, nounsi,verbsi, fwi,  nrow = 2)
+
+
+
+```
+
+```{r plots}
+option1<-lm(aoa~ FrequencyLogMean + (1|num_item_id), data=CHILDES_WB_short) 
+
+#create dummy variables for item_id,lexical category
+
+option2 <- lm(value ~ aoa * FrequencyLogMean, data=CHILDES_WB) 
+
+
+#qplot( x = CHILDES_WB$intercept, fill = CHILDES_WB$`value == "produces"`, geom = "histogram", main = "Frequency distribution for WB items at 17 months",  xlab = "Frequency of WB items")
+```
+
+
+
