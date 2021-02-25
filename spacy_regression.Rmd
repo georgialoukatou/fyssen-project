@@ -40,7 +40,7 @@ corpus<-rbind(lyon, paris, mtln, yamaguchi, goadrose)
 corpus<-corpus %>% mutate(language="French")
 }
 
-if (language_ == "NAEnglish") {
+if (language_ == "English (American)") {
   
 corpus<-read.csv("/Users/lscpuser/Documents/fyssen-project/Providence_spacy.csv")
 corpus <- corpus %>% mutate(language="NAEnglish")
