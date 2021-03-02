@@ -14,6 +14,9 @@ Load databases
 
 ```{r clean data, results='hide', message=FALSE}
 library(tidyverse)
+library(lme4)
+library(ggeffects)
+library(wordbankr)
 
 #for (language_ in c("Italian", "French", "NAEnglish")){
 
@@ -97,6 +100,26 @@ corpus_frequency$intercept<-ifelse(corpus_frequency$lemma ==i, coef(lm(Frequency
 head(corpus_frequency)
 ```
 
+Alternative approach:
+
+```{r}
+models <- corpus_frequency %>%
+  group_by(language, lemma) %>%
+  nest() 
+
+models_ <- models %>% mutate (interceptmodel = map(.x=data, .f=~coef(lm(.x$rawFrequency ~(.x$CountAllLemmasChild-.x$CountLemma), data=data))["(Intercept)"], na.rm = T))
+
+models_<-models_ %>% unnest(interceptmodel)
+
+corpus_frequency_<-corpus_frequency %>% left_join(unique(models_) 
+
+#models_1 <- models %>% mutate (lapply(data, function(df) ~lm(c(CountLemma, CountAllLemmas-CountLemma), data=df)),)
+#models_1 <- models %>% mutate (lapply(data, function(df) mean(CountLemma, data=df)))
+#%>%
+ # mutate(models = lapply(data, function(df)
+  #  glmer(c(CountLemma,CountAllLemmasChild-CountLemma) ~ 1 + (1|target_child_id), data = df)))
+```
+
 
 
 ```{r wordbank}
@@ -117,7 +140,7 @@ dataAoa <- unique(data) %>% left_join(unique(aoa))
 
 ```{r merge aoa and childes}
 
-corpus_frequency_short <- corpus_frequency %>% ungroup() %>% select(lemma, language, FrequencyLogMean, intercept) #get only important columns 
+corpus_frequency_short <- corpus_frequency_ %>% ungroup() %>% select(lemma, language, FrequencyLogMean, interceptmodel) #get only important columns 
 
 #number of lemmas before merging: 13307 for French
 CHILDES_WB <- merge(x=dataAoa, y=unique(corpus_frequency_short), by="lemma") 
@@ -125,7 +148,7 @@ CHILDES_WB <- merge(x=dataAoa, y=unique(corpus_frequency_short), by="lemma")
 
 CHILDES_WB <- CHILDES_WB[!is.na(CHILDES_WB$value), ] #remove lemmas with no value
 
-CHILDES_WB_short <- CHILDES_WB_short%>% select(lemma, FrequencyLogMean, intercept, lexical_category, aoa, num_item_id) 
+CHILDES_WB_short <- CHILDES_WB%>% select(lemma, FrequencyLogMean, interceptmodel, lexical_category, aoa, num_item_id) 
 CHILDES_WB_short <- unique(CHILDES_WB_short)
 CHILDES_WB_short <- CHILDES_WB_short[!is.na(CHILDES_WB_short$aoa), ] # 565 -> 443 after removing NA aoas
 
@@ -137,18 +160,34 @@ head(CHILDES_WB_short)
 
 ```{r plot}
 
+
+
+
+
+
+
+
+
 ggplot(CHILDES_WB_short, aes(FrequencyLogMean, aoa, label=lemma)) + geom_point()  +geom_text(aes(label=lemma),hjust=0, vjust=0) +xlim(0,0.6) + facet_wrap(~lexical_category, nrow=2)
 
 
 ggplot(CHILDES_WB_short, aes(intercept, aoa, label=lemma)) + geom_point()  +geom_text(aes(label=lemma),hjust=0, vjust=0) +xlim(0,0.5) + facet_wrap(~lexical_category, nrow=2)
 
+```
+
+
+```{r}
+ggplot(CHILDES_WB_short, 
+       aes(x = intercept, y = FrequencyLogMean, label = lemma)) + 
+  geom_point() + 
+  geom_smooth(method = "lm") + 
+  facet_wrap(~lexical_category)
+```
+
 
 ```
 
 ```{r plots}
-
-library(lme4)
-library(ggeffects)
 
 option1<-lmer(aoa~ intercept + (1|lexical_category), data=CHILDES_WB_short) 
 #number_producing ~ age + frequency 
