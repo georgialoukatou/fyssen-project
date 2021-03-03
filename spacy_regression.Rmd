@@ -17,6 +17,7 @@ library(tidyverse)
 library(lme4)
 library(ggeffects)
 library(wordbankr)
+library(psych)
 
 #for (language_ in c("Italian", "French", "NAEnglish")){
 
@@ -111,7 +112,7 @@ models_ <- models %>% mutate (interceptmodel = map(.x=data, .f=~coef(lm(.x$rawFr
 
 models_<-models_ %>% unnest(interceptmodel)
 
-corpus_frequency_<-corpus_frequency %>% left_join(unique(models_) 
+corpus_frequency_<-corpus_frequency %>% left_join(unique(models_)) 
 
 #models_1 <- models %>% mutate (lapply(data, function(df) ~lm(c(CountLemma, CountAllLemmas-CountLemma), data=df)),)
 #models_1 <- models %>% mutate (lapply(data, function(df) mean(CountLemma, data=df)))
@@ -130,6 +131,7 @@ WB_tokens<-WB_tokens %>% filter (type == "word")  #remove grammar
 data <- get_instrument_data(language ="French (French)", form = "WS", items = WB_tokens$item_id, administrations = TRUE, iteminfo=TRUE)
 names(data)[names(data) == "definition"] <- "lemma"
 
+
 aoa<- fit_aoa(data, measure = "produces", method = "glmrob", proportion = 0.5) # 145 NAs out of 680
 names(aoa)[names(aoa) == "definition"] <- "lemma"
 
@@ -137,6 +139,25 @@ dataAoa <- unique(data) %>% left_join(unique(aoa))
 ```
 
 ##########################################
+
+```{r reliability}
+library(reshape2)
+library(psych)
+
+corpus_frequency_reliability <- corpus_frequency_ %>% ungroup() %>% select(lemma, FrequencyLog, target_child_id)
+lemma_<-corpus_frequency_reliability$lemma
+target_child_id_<-corpus_frequency_reliability$target_child_id
+freq_<-corpus_frequency_reliability$FrequencyLog
+
+df<-data.frame(lemma_, target_child_id_, freq_)
+corpus_frequency_reliability_<-tidyr::spread(df, target_child_id_, freq_)
+
+child_ids_<- unique(as.character(colnames(corpus_frequency_reliability_)[3:ncol(corpus_frequency_reliability_)]))
+
+child<-select(corpus_frequency_reliability_, child_ids_ )
+alpha(child)
+
+```
 
 ```{r merge aoa and childes}
 
@@ -160,25 +181,17 @@ head(CHILDES_WB_short)
 
 ```{r plot}
 
-
-
-
-
-
-
-
-
 ggplot(CHILDES_WB_short, aes(FrequencyLogMean, aoa, label=lemma)) + geom_point()  +geom_text(aes(label=lemma),hjust=0, vjust=0) +xlim(0,0.6) + facet_wrap(~lexical_category, nrow=2)
 
 
-ggplot(CHILDES_WB_short, aes(intercept, aoa, label=lemma)) + geom_point()  +geom_text(aes(label=lemma),hjust=0, vjust=0) +xlim(0,0.5) + facet_wrap(~lexical_category, nrow=2)
+ggplot(CHILDES_WB_short, aes(interceptmodel, aoa, label=lemma)) + geom_point()  +geom_text(aes(label=lemma),hjust=0, vjust=0)  + facet_wrap(~lexical_category, nrow=2)
 
 ```
 
 
 ```{r}
 ggplot(CHILDES_WB_short, 
-       aes(x = intercept, y = FrequencyLogMean, label = lemma)) + 
+       aes(x = interceptmodel, y = FrequencyLogMean, label = lemma)) + 
   geom_point() + 
   geom_smooth(method = "lm") + 
   facet_wrap(~lexical_category)
@@ -189,10 +202,9 @@ ggplot(CHILDES_WB_short,
 
 ```{r plots}
 
-option1<-lmer(aoa~ intercept + (1|lexical_category), data=CHILDES_WB_short) 
-#number_producing ~ age + frequency 
+option1<-lmer(aoa~ FrequencyLogMean + (1|lexical_category) + (1|lemma) , data=CHILDES_WB_short) 
 anova(option1)
-ggpredict(option1, c("intercept")) %>% plot()
+ggpredict(option1, c("FrequencyLogMean")) %>% plot()
 
 
 CHILDES_WB$value1 <- as.numeric(as.factor(CHILDES_WB$value))
