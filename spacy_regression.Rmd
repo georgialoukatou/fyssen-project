@@ -10,7 +10,8 @@ language_="French (French)"    #"English (American)" #Italian
 
 ## R Markdown
 
-Load databases
+
+Load and rbind databases for language
 
 ```{r clean data, results='hide', message=FALSE}
 library(tidyverse)
@@ -18,6 +19,8 @@ library(lme4)
 library(ggeffects)
 library(wordbankr)
 library(psych)
+library(reshape2)
+
 
 #for (language_ in c("Italian", "French", "NAEnglish")){
 
@@ -52,7 +55,7 @@ corpus <- corpus %>% mutate(language="NAEnglish")
 #}
 
 ```
-
+Clean all utterances by removing puctuation, incomplete sentences and target-child speech: 
 
 ```{r clean corpora}
 annot <- c("xxx", "yyy", "www", "-", "'") 
@@ -67,7 +70,7 @@ corpus<-corpus %>% filter (pos != "PUNCT")  #remove punctuation
 corpus$lemma<-tolower(corpus$lemma) # tolower
 ```
 
-
+Count number of times child hears a lemma, and divide it by the total number of lemma tokens heard. This gives a 'rawFrequency' column, which gives 1 when grouped by target child: 
 
 ```{r raw frequency}
 #Count each lemma and sum of lemmas for each target child
@@ -80,6 +83,7 @@ corpus_frequency<-corpus_frequency %>% mutate (rawFrequency = CountLemma / Count
 corpus_frequency %>% group_by(target_child_id) %>% summarize (sum(rawFrequency)) #Test frequence: should be 1 for each child
 
 ```
+Convert rawFrequency to FrequencyLog to avoid very small values:
 
 ```{r log frequency}
 corpus_frequency<-corpus_frequency %>% mutate (FrequencyLog =log(1+ rawFrequency * 100))
@@ -90,20 +94,16 @@ corpus_frequency1<- corpus_frequency %>%  group_by(lemma, language) %>% summariz
 corpus_frequency <- corpus_frequency %>% left_join(corpus_frequency1) 
 ```
 
+Model frequency by corpus size, and get intercept coefficient as a proxy for frequency:
 ```{r modeling frequency intercept}
 
-corpus_frequency$intercept <-NA
+#loop lemmas and fit model for intercept (previous code)
+#corpus_frequency$intercept <-NA
+#for (i in unique(corpus_frequency$lemma)) {
+#corpus_frequency$intercept<-ifelse(corpus_frequency$lemma ==i, coef(lm(FrequencyLog ~ CountAllLemmasChild  + #(1|target_child_id), data=corpus_frequency  %>% filter (lemma==i)))["(Intercept)"], corpus_frequency$intercept) }
 
-#loop lemmas and fit model for intercept 
-for (i in unique(corpus_frequency$lemma)) {
-corpus_frequency$intercept<-ifelse(corpus_frequency$lemma ==i, coef(lm(FrequencyLog ~ CountAllLemmasChild  + (1|target_child_id), data=corpus_frequency  %>% filter (lemma==i)))["(Intercept)"], corpus_frequency$intercept) }
+#head(corpus_frequency)
 
-head(corpus_frequency)
-```
-
-Alternative approach:
-
-```{r}
 models <- corpus_frequency %>%
   group_by(language, lemma) %>%
   nest() 
@@ -111,18 +111,17 @@ models <- corpus_frequency %>%
 models_ <- models %>% mutate (interceptmodel = map(.x=data, .f=~coef(lm(.x$rawFrequency ~(.x$CountAllLemmasChild-.x$CountLemma), data=data))["(Intercept)"], na.rm = T))
 
 models_<-models_ %>% unnest(interceptmodel)
+head(models_)
 
 corpus_frequency_<-corpus_frequency %>% left_join(unique(models_)) 
-
+head(corpus_frequency_)
 #models_1 <- models %>% mutate (lapply(data, function(df) ~lm(c(CountLemma, CountAllLemmas-CountLemma), data=df)),)
 #models_1 <- models %>% mutate (lapply(data, function(df) mean(CountLemma, data=df)))
-#%>%
- # mutate(models = lapply(data, function(df)
-  #  glmer(c(CountLemma,CountAllLemmasChild-CountLemma) ~ 1 + (1|target_child_id), data = df)))
+#%>%# mutate(models = lapply(data, function(df) #  glmer(c(CountLemma,CountAllLemmasChild-CountLemma) ~ 1 +(1|target_child_id), data = df)))
 ```
 
 
-
+Get wordbank data for language and measure aoa for each lemma:
 ```{r wordbank}
 
 WB_tokens<- get_item_data(language = language_, form = "WS")
@@ -130,7 +129,6 @@ WB_tokens<-WB_tokens %>% filter (type == "word")  #remove grammar
 
 data <- get_instrument_data(language ="French (French)", form = "WS", items = WB_tokens$item_id, administrations = TRUE, iteminfo=TRUE)
 names(data)[names(data) == "definition"] <- "lemma"
-
 
 aoa<- fit_aoa(data, measure = "produces", method = "glmrob", proportion = 0.5) # 145 NAs out of 680
 names(aoa)[names(aoa) == "definition"] <- "lemma"
@@ -140,9 +138,9 @@ dataAoa <- unique(data) %>% left_join(unique(aoa))
 
 ##########################################
 
-```{r reliability}
-library(reshape2)
-library(psych)
+Attempt 1 to measure reliability:
+
+```{r reliability1}
 
 corpus_frequency_reliability <- corpus_frequency_ %>% ungroup() %>% select(lemma, FrequencyLog, target_child_id)
 lemma_<-corpus_frequency_reliability$lemma
@@ -152,13 +150,102 @@ freq_<-corpus_frequency_reliability$FrequencyLog
 df<-data.frame(lemma_, target_child_id_, freq_)
 corpus_frequency_reliability_<-tidyr::spread(df, target_child_id_, freq_)
 
-child_ids_<- unique(as.character(colnames(corpus_frequency_reliability_)[3:ncol(corpus_frequency_reliability_)]))
+#head(corpus_frequency_reliability_)
 
+child_ids_<- unique(as.character(colnames(corpus_frequency_reliability_)[3:ncol(corpus_frequency_reliability_)]))
 child<-select(corpus_frequency_reliability_, child_ids_ )
 alpha(child)
 
 ```
+Attempt 2 to measure reliability:
 
+```{r reliability2}
+head(corpus_frequency_)
+head(corpus)
+n<-nrow(corpus)
+
+
+ind <- sample(c(TRUE, FALSE), n, replace=TRUE, prob=c(0.5, 0.5))
+
+firsthalf <- corpus[ind, ]
+secondhalf <- corpus[!ind, ]
+
+#onellemma<-length(unique(firsthalf$lemma))
+#twollemma<-length(unique(secondhalf$lemma))
+
+firsthalf <- firsthalf %>%  group_by(lemma, pos) %>% summarize(CountLemma=n()) 
+#firsthalf <- split(firsthalf, firsthalf$pos) #count each lemma for each child
+
+secondhalf <- secondhalf %>%  group_by(lemma, pos) %>% summarize(CountLemma=n()) 
+
+#secondhalf <- split(secondhalf, secondhalf$pos) #count each lemma for each child
+#secondhalfADJ<- secondhalf$ADJ
+#secondhalfNOUN<- secondhalf$NOUN
+#secondhalfVERB<- secondhalf$VERB
+#secondhalfADV<- secondhalf$ADV
+
+firsthalf$name <- paste(firsthalf$lemma, "-", firsthalf$pos)
+secondhalf$name <- paste(secondhalf$lemma, "-", secondhalf$pos)
+
+firsthalf<-firsthalf[order(firsthalf$name),]
+secondhalf<-secondhalf[order(secondhalf$name),]
+
+firstlistlemma<-(firsthalf$name)
+secondlistlemma<-(secondhalf$name)
+diff1<-setdiff(firstlistlemma,secondlistlemma)
+firsthalf_ <- firsthalf[ ! firsthalf$name %in% diff1, ]
+diff2<-setdiff(secondlistlemma,firstlistlemma)
+secondhalf_ <- secondhalf[ ! secondhalf$name %in% diff2, ]
+
+r<-cor(firsthalf_$CountLemma, secondhalf_$CountLemma)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+firsthalfmeanADJ<- mean(firsthalfADJ$CountLemma)
+firsthalfmeanNOUN<- mean(firsthalfNOUN$CountLemma)
+firsthalfmeanADV<- mean(firsthalfADV$CountLemma)
+firsthalfmeanVERB<- mean(firsthalfVERB$CountLemma)
+
+
+secondhalf <- secondhalf %>%  group_by(lemma, pos) %>% summarize(CountLemma=n()) 
+secondhalf <- split(secondhalf, secondhalf$pos) #count each lemma for each child
+
+secondhalfADJ<- secondhalf$ADJ
+secondhalfNOUN<- secondhalf$NOUN
+secondhalfVERB<- secondhalf$VERB
+secondhalfADV<- secondhalf$ADV
+
+secondhalfmeanADJ<- mean(secondhalfADJ$CountLemma)
+secondhalfmeanNOUN<- mean(secondhalfNOUN$CountLemma)
+secondhalfmeanADV<- mean(secondhalfADV$CountLemma)
+secondhalfmeanVERB<- mean(secondhalfVERB$CountLemma)
+
+rADJ<-cor(firsthalfADJ$CountLemma, secondhalfADJ$CountLemma)
+
+
+
+
+
+```  
+  
+  
+  
+  
+Merge aoa and childes db, get final db "CHILDES_WB_short":
+    
 ```{r merge aoa and childes}
 
 corpus_frequency_short <- corpus_frequency_ %>% ungroup() %>% select(lemma, language, FrequencyLogMean, interceptmodel) #get only important columns 
@@ -168,7 +255,6 @@ CHILDES_WB <- merge(x=dataAoa, y=unique(corpus_frequency_short), by="lemma")
 #number of lemmas after merging: 474
 
 CHILDES_WB <- CHILDES_WB[!is.na(CHILDES_WB$value), ] #remove lemmas with no value
-
 CHILDES_WB_short <- CHILDES_WB%>% select(lemma, FrequencyLogMean, interceptmodel, lexical_category, aoa, num_item_id) 
 CHILDES_WB_short <- unique(CHILDES_WB_short)
 CHILDES_WB_short <- CHILDES_WB_short[!is.na(CHILDES_WB_short$aoa), ] # 565 -> 443 after removing NA aoas
@@ -179,6 +265,7 @@ head(CHILDES_WB_short)
 
 ##########################################
 
+Plot frequency and aoa using log frequency and model intercept frequency:
 ```{r plot}
 
 ggplot(CHILDES_WB_short, aes(FrequencyLogMean, aoa, label=lemma)) + geom_point()  +geom_text(aes(label=lemma),hjust=0, vjust=0) +xlim(0,0.6) + facet_wrap(~lexical_category, nrow=2)
@@ -199,17 +286,18 @@ ggplot(CHILDES_WB_short,
 
 
 ```
-
-```{r plots}
+Regression:
+```{r reg}
 
 option1<-lmer(aoa~ FrequencyLogMean + (1|lexical_category) + (1|lemma) , data=CHILDES_WB_short) 
 anova(option1)
+summary(option1)
 ggpredict(option1, c("FrequencyLogMean")) %>% plot()
 
 
-CHILDES_WB$value1 <- as.numeric(as.factor(CHILDES_WB$value))
-option2 <- glmer(value1 ~ aoa * FrequencyLogMean + (1|lexical_category), data=CHILDES_WB) 
-anova(option2)
+#CHILDES_WB$value1 <- as.numeric(as.factor(CHILDES_WB$value))
+#option2 <- glmer(value1 ~ aoa * FrequencyLogMean + (1|lexical_category), data=CHILDES_WB) 
+#anova(option2)
 
 #qplot( x = CHILDES_WB$intercept, fill = CHILDES_WB$`value == "produces"`, geom = "histogram", main = "Frequency distribution for WB items at 17 months",  xlab = "Frequency of WB items")
 ```
