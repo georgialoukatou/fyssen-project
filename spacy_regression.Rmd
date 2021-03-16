@@ -24,6 +24,7 @@ library(ggpubr)
 library(rstatix)
 library(data.table)
 library(gridExtra)
+library(here)
 
 clean_childes <- function(corpus_) {
   #annot <- c("xxx", "yyy", "www", "-", "'") 
@@ -39,11 +40,11 @@ clean_childes <- function(corpus_) {
 load_data <- function(language_list) {
   for (lang in language_list){
     if (lang == "French")     { 
-      french=read_csv("/Users/lscpuser/Documents/fyssen-project/french_1403.csv")
+      french=read_csv(here("data/french_1403.csv"))
       french=clean_childes(french)
     }
     if (lang == "Italian")    { 
-      italian=read_csv("/Users/lscpuser/Documents/fyssen-project/italian_1403.csv")
+      italian=read_csv(here("data/italian_1403.csv"))
       italian=clean_childes(italian)
     }
   }
