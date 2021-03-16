@@ -3,7 +3,7 @@ title: "spacy_regression"
 output: html_document
 ---
 
-```{r setup, include=FALSE, message=FALSE, warning = FALSE}
+```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 language_list=c("French", "Italian")    #"English (American)" #Italian
 ```
@@ -13,7 +13,7 @@ language_list=c("French", "Italian")    #"English (American)" #Italian
 
 Rbind different corpora.
 
-```{r clean load data, results='hide', message=FALSE, warning = FALSE}
+```{r clean load data, results='hide'}
 library(tidyverse)
 library(lme4)
 library(ggeffects)
@@ -56,7 +56,7 @@ load_data <- function(language_list) {
 
 Clean utterances by removing puctuation, incomplete sentences and target-child speech. 
 
-```{r example, message=FALSE, message=FALSE, warning = FALSE}
+```{r example, message=FALSE}
 
 corpus<-load_data(language_list) 
 
@@ -70,32 +70,32 @@ lapply(corpus, function(x) {
 
 Count number of times child hears a lemma, and divide it by the total number of lemma tokens heard. This creates a 'rawFrequency' column, which gives 1 when grouped by target child. 
 
-```{r raw frequency, message=FALSE, warning = FALSE}
+```{r raw frequency}
 #Count each lemma and sum of lemmas for each target child
 
 frequency_raw <- function(corpus_) {
-  corpus_frequency<- corpus_ %>%  
-  group_by(lemma, target_child_id, language) %>% 
-  summarize(CountLemma=n()) #count each lemma for each child
-
-  countAllLemmas<-corpus_frequency %>%  
-  group_by(target_child_id, language) %>% 
-  summarize(countAllLemmasChild=sum(CountLemma)) #count all lemma tokens for child 
-
-  corpus_frequency<-corpus_frequency %>% 
-  left_join(countAllLemmas) #join infos
+  corpus_frequency <- corpus_ %>%  
+    group_by(lemma, target_child_id, language) %>% 
+    summarize(CountLemma = n()) #count each lemma for each child
+  
+  countAllLemmas <- corpus_frequency %>%  
+    group_by(target_child_id, language) %>% 
+    summarize(countAllLemmasChild=sum(CountLemma)) #count all lemma tokens for child 
   
   corpus_frequency<-corpus_frequency %>% 
-  mutate (rawFrequency = CountLemma / countAllLemmasChild) %>% 
-  mutate (FrequencyLog =log(1+ rawFrequency * 100)) #Convert rawFrequency to FrequencyLog to avoid very small values.
-
+    left_join(countAllLemmas) #join infos
+  
+  corpus_frequency<-corpus_frequency %>% 
+    mutate (rawFrequency = CountLemma / countAllLemmasChild) %>% 
+    mutate (FrequencyLog = log(1+ rawFrequency * 100)) #Convert rawFrequency to FrequencyLog to avoid very small values.
+  
   corpus_frequency1<- corpus_frequency %>%  
-  group_by(lemma, language) %>% 
-  summarize(FrequencyLogMean=mean(FrequencyLog))
-
+    group_by(lemma, language) %>% 
+    summarize(FrequencyLogMean=mean(FrequencyLog))
+  
   corpus_frequency <- corpus_frequency %>% 
-  left_join(corpus_frequency1) 
-
+    left_join(corpus_frequency1) 
+  
   return(corpus_frequency)
 } 
 
@@ -104,86 +104,87 @@ frequency_raw <- function(corpus_) {
 ### Model frequency for CHILDES lemmas and get intercept. 
 
 Model frequency by corpus size, and get intercept coefficient as a proxy for frequency:
-```{r modeling frequency intercept, message=FALSE, warning = FALSE}
+```{r modeling frequency intercept}
 
 frequency_model <- function(corpus) {
-  corpus_frequency<-frequency_raw(corpus)
+  corpus_frequency <- frequency_raw(corpus)
   
   models <- corpus_frequency %>%
-  group_by(language, lemma) %>%  nest() 
-
+    group_by(language, lemma) %>%  nest() 
+  
   models_ <- models %>% 
-  mutate (interceptmodel = map(.x=data, .f=~coef(lm(.x$rawFrequency ~(.x$countAllLemmasChild-.x$CountLemma), data=data))["(Intercept)"], na.rm = T))
-
+    mutate (interceptmodel = map(.x=data, 
+                                 .f=~coef(lm(.x$rawFrequency ~(.x$countAllLemmasChild-.x$CountLemma), data=data))["(Intercept)"], 
+                                 na.rm = T))
+  
   models_<-models_ %>% unnest(interceptmodel)
-
-  corpus_frequency_<-corpus_frequency %>% 
-  left_join(unique(models_)) 
-
+  
+  corpus_frequency_ <- corpus_frequency %>% 
+    left_join(unique(models_)) 
+  
   return(corpus_frequency_)}
 
 ```
 
-```{r example frequency, message=FALSE, warning = FALSE}
+```{r example frequency}
+frequencies <- lapply(corpus, frequency_model) %>%
+  bind_rows()
 
-frequency_it<- frequency_model(corpus$italian)
-frequency_fr<- frequency_model(corpus$french)
 
 # TEST1 frequency metric:
-frequency_it %>% 
+frequencies %>% 
   group_by(target_child_id) %>% 
-    summarize (sum(rawFrequency)) #Test frequence: should be 1 for each child
+  summarize (sum(rawFrequency)) #Test frequence: should be 1 for each child
 
 # TEST2 frequency metric:  
-frequency_fr %>% 
+frequencies %>% 
   arrange(desc(FrequencyLog))#: maximum values
- 
+
 ```
 
 ### WordBank lemmas and AoA. 
 
 Get wordbank data for language and aoa for each lemma:
-```{r load wordbank, message=FALSE, warning = FALSE}
+  
+```{r load wordbank}
 
-list_class<-c("nouns", "verbs", "adjectives", "function_words", "other")
+list_class <-c("nouns", "verbs", "adjectives", "function_words", "other")
 
 load_wordbank<- function(lang_) {
-  WB_tokens<- get_item_data(language = lang_, form = "WS")
-  WB_tokens<-WB_tokens %>% 
-  filter (type == "word")  #remove grammar
-
-  data <- get_instrument_data(language =lang_, form = "WS", items = WB_tokens$item_id, administrations = TRUE, iteminfo=TRUE)
+  WB_tokens <- get_item_data(language = lang_, form = "WS")
+  WB_tokens <- WB_tokens %>% 
+    filter (type == "word")  #remove grammar
+  
+  data <- get_instrument_data(language = lang_, form = "WS", items = WB_tokens$item_id, administrations = TRUE, iteminfo=TRUE)
   names(data)[names(data) == "definition"] <- "lemma"
-
-  aoa<- fit_aoa(data, measure = "produces", method = "glmrob", proportion = 0.5) # 145 NAs out of 680
+  
+  aoa <- fit_aoa(data, measure = "produces", method = "glmrob", proportion = 0.5) # 145 NAs out of 680
   names(aoa)[names(aoa) == "definition"] <- "lemma"
-
+  
   dataAoa <- unique(data) %>% left_join(unique(aoa))
   dataAoa <- dataAoa[!is.na(dataAoa$value), ]  #remove WB lemmas with no value
-  dataAoa_class<-split(dataAoa, dataAoa$lexical_class)
-
-  return(dataAoa_class)
+  # dataAoa_class<-split(dataAoa, dataAoa$lexical_class)
+  # 
+  return(dataAoa)
 }
 ```
 
 ##########################################
 
-```{r example load wordbank, message=FALSE, warning = FALSE}
+```{r example load wordbank}
+# could make this an "apply" or "map" over languages
 
-aoa_it<-load_wordbank("Italian")
-aoa_fr<-load_wordbank("French (French)")
-
+aoas <- bind_rows(load_wordbank("Italian"), 
+                  load_wordbank("French (French)"))
 
 ```
 
 
 ### Reliability_frequency: half-split and Spearman-Brown
 
-```{r reliability frequency, message=FALSE, warning = FALSE}
-
-
-
-same_size_df<- function(df1, df2) { # add lemmas of the first half not existing at the second half, with 1 
+```{r reliability frequency}
+# add lemmas of the first half not existing at the second half, with 1 
+same_size_df <- function(df1, df2) { 
   firstlistlemma<-(df1$name)
   secondlistlemma<-(df2$name)
   diff1<-setdiff(firstlistlemma,secondlistlemma) 
@@ -196,97 +197,69 @@ same_size_df<- function(df1, df2) { # add lemmas of the first half not existing 
   return(secondhalf)
 }
 
+
 split_half_cor <-function(dataAoa, corpus){
-n<-nrow(corpus) #corpus size in word tokens
-
-wblemmas<-unique(dataAoa$lemma) #unique wordbank lemmas
-
-ind <- sample(c(TRUE, FALSE), n, replace=TRUE, prob=c(0.5, 0.5)) #randomly split word tokens
-firsthalf <- corpus[ind, ] #split in two
-secondhalf <- corpus[!ind, ]
-
-firsthalf <- firsthalf %>%  
-  group_by(lemma, pos) %>% 
+  n<-nrow(corpus) #corpus size in word tokens
+  
+  wblemmas<-unique(dataAoa$lemma) #unique wordbank lemmas
+  
+  ind <- sample(c(TRUE, FALSE), n, replace=TRUE, prob=c(0.5, 0.5)) #randomly split word tokens
+  firsthalf <- corpus[ind, ] #split in two
+  secondhalf <- corpus[!ind, ]
+  
+  firsthalf <- firsthalf %>%  
+    group_by(lemma, pos) %>% 
     summarize(CountLemma=n()) #group by lemma and pos and count raw frequency
-
-secondhalf <- secondhalf %>%  
-  group_by(lemma, pos) %>% 
+  
+  secondhalf <- secondhalf %>%  
+    group_by(lemma, pos) %>% 
     summarize(CountLemma=n()) 
-
-secondhalf <- secondhalf[secondhalf$lemma %in% wblemmas, ] #keep only lemmas existing in wordbank
-firsthalf <- firsthalf[firsthalf$lemma %in% wblemmas, ]
-
-firsthalf$name <- paste(firsthalf$lemma, "-", firsthalf$pos) #merge lemma and pos to a new name, just in case
-secondhalf$name <- paste(secondhalf$lemma, "-", secondhalf$pos)
-
-firsthalf<-firsthalf[order(firsthalf$name),] #order vector alphabetically
-secondhalf<-secondhalf[order(secondhalf$name),]
-
-secondhalf<- same_size_df(firsthalf, secondhalf)
-firsthalf<-same_size_df(secondhalf, firsthalf)
-
-firsthalf<-firsthalf[order(firsthalf$name),] #order again
-secondhalf<-secondhalf[order(secondhalf$name),]
-
-r<-cor(firsthalf$CountLemma, secondhalf$CountLemma, method="kendall") #measure r
-return(r)
+  
+  secondhalf <- secondhalf[secondhalf$lemma %in% wblemmas, ] #keep only lemmas existing in wordbank
+  firsthalf <- firsthalf[firsthalf$lemma %in% wblemmas, ]
+  
+  firsthalf$name <- paste(firsthalf$lemma, "-", firsthalf$pos) #merge lemma and pos to a new name, just in case
+  secondhalf$name <- paste(secondhalf$lemma, "-", secondhalf$pos)
+  
+  firsthalf<-firsthalf[order(firsthalf$name),] #order vector alphabetically
+  secondhalf<-secondhalf[order(secondhalf$name),]
+  
+  secondhalf<- same_size_df(firsthalf, secondhalf)
+  firsthalf<-same_size_df(secondhalf, firsthalf)
+  
+  firsthalf<-firsthalf[order(firsthalf$name),] #order again
+  secondhalf<-secondhalf[order(secondhalf$name),]
+  
+  r<-cor(firsthalf$CountLemma, secondhalf$CountLemma, method="kendall") #measure r
+  return(r)
 }
 
 sbformula <- function(r){  #adjust with spearman-brown formula
   r1<-(2*r)/(1+r)
   return(r1)
-  }
+}
 ``` 
 
-```{r example reliability frequency, message=FALSE, warning = FALSE}
 
-r_fr_nouns <- split_half_cor (aoa_fr$nouns, corpus$french)
-r_fr_adj <- split_half_cor (aoa_fr$adjectives, corpus$french)
-r_fr_verbs <- split_half_cor (aoa_fr$verbs, corpus$french)
-r_fr_other <- split_half_cor (aoa_fr$other, corpus$french)
-r_fr_fw <- split_half_cor (aoa_fr$function_words, corpus$french)
+```{r reliability-alpha}
 
-r_it_nouns <- split_half_cor (aoa_it$nouns, corpus$italian)
-r_it_adj <- split_half_cor (aoa_it$adjectives, corpus$italian)
-r_it_verbs <- split_half_cor (aoa_it$verbs, corpus$italian)
-r_it_other <- split_half_cor (aoa_it$other, corpus$italian)
-r_it_fw <- split_half_cor (aoa_it$function_words, corpus$italian)
-
-
-```  
-French nouns:   `r r_fr_nouns`, `r sbformula(r_fr_nouns)` 
-French adjectives: `r r_fr_adj`, `r sbformula(r_fr_adj)`
-French verbs: `r r_fr_verbs`, `r sbformula(r_fr_verbs)` 
-French other: `r r_fr_other`,`r sbformula(r_fr_other)`
-French function words: `r r_fr_fw`,`r sbformula(r_fr_fw)`
-  
-Italian nouns:   `r r_it_nouns`, `r sbformula(r_it_nouns)` 
-Italian adjectives: `r r_it_adj`, `r sbformula(r_it_adj)`
-Italian verbs: `r r_it_verbs`, `r sbformula(r_it_verbs)` 
-Italian other: `r r_it_other`,`r sbformula(r_it_other)`
-Italian function words: `r r_it_fw`,`r sbformula(r_it_fw)`
-
-### Reliability_frequency: cronebach's alpha - treat each word as item and each child as subject
-
-```{r reliability alpha, message=FALSE, warning = FALSE}
-
-cronebach_alpha <-function(dataAoa, corpus_frequency_){
+cronbach_alpha <-function(dataAoa, corpus_frequency_){
   corpus_frequency_reliability <- corpus_frequency_ %>% 
     ungroup() %>% 
-      select(lemma, rawFrequency, target_child_id)
-
+    select(lemma, rawFrequency, target_child_id)
+  
   wblemmas<-unique(dataAoa$lemma) #unique wordbank lemmas
   corpus_frequency_reliability  <- corpus_frequency_reliability [corpus_frequency_reliability $lemma %in% wblemmas, ] #keep only lemmas with corresponding items in wordbank
-
+  
   lemma_<-corpus_frequency_reliability$lemma  #restructure dataframe
   target_child_id_<-corpus_frequency_reliability$target_child_id
   freq_<-corpus_frequency_reliability$rawFrequency
-
+  
   df<-data.frame(lemma_, target_child_id_, freq_)
   corpus_frequency_reliability_<-tidyr::spread(df, target_child_id_, freq_)
-
+  
   child_ids_<- unique(as.character(colnames(corpus_frequency_reliability_)[3:ncol(corpus_frequency_reliability_)]))
-
+  
   child<-select(corpus_frequency_reliability_, child_ids_ )
   a<-alpha(child) 
   return(a$raw_)
@@ -294,30 +267,34 @@ cronebach_alpha <-function(dataAoa, corpus_frequency_){
 
 ```
 
+```{r example-reliability-frequency}
+reliabilities <- expand_grid(language = c("italian","french"), 
+                            word_class = c("all", "nouns","adjectives","verbs",
+                                           "function_words","other")) %>% 
+  rowwise %>%
+  mutate(split_half_tau = ifelse(word_class == "all", 
+                             split_half_cor(aoas, corpus[[language]]),
+                             split_half_cor(filter(aoas, 
+                                                   lexical_class == word_class),
+                                            corpus[[language]])),
+         split_half_tau_sb = sbformula(split_half_tau), 
+         cronbach_alpha = 
+           ifelse(word_class == "all", 
+                  cronbach_alpha(aoas, 
+                                 filter(frequencies, 
+                                        language == str_to_title(language))),
+                  cronbach_alpha(filter(aoas, 
+                                        lexical_class == word_class),
+                                 filter(frequencies, 
+                                        language == str_to_title(language)))))
 
-```{r example reliability alpha, message=FALSE, warning = FALSE}
-
-r_fr_nouns_a <- cronebach_alpha (aoa_fr$nouns, frequency_fr)
-r_fr_adj_a <- cronebach_alpha (aoa_fr$adjectives, frequency_fr)
-r_fr_verbs_a <- cronebach_alpha (aoa_fr$verbs, frequency_fr)
-r_fr_other_a <- cronebach_alpha (aoa_fr$other, frequency_fr)
-r_fr_fw_a <- cronebach_alpha (aoa_fr$function_words, frequency_fr)
-r_it_nouns_a <- cronebach_alpha (aoa_it$nouns, frequency_it)
-
-
-```
-
-French nouns a:   `r r_fr_nouns_a`, `r sbformula(r_fr_nouns_a)` 
-French adjectives a: `r r_fr_adj_a`, `r sbformula(r_fr_adj_a)`
-French verbs a: `r r_fr_verbs_a`, `r sbformula(r_fr_verbs_a)` 
-French other a: `r r_fr_other_a`,`r sbformula(r_fr_other_a)`
-French function words a: `r r_fr_fw_a`,`r sbformula(r_fr_fw_a)`
-
-Italian nouns a: `r r_it_nouns_a`,`r sbformula(r_it_nouns_a)`
+reliabilities %>%
+  knitr::kable(digits = 2)
+```  
 
 ### Reliability_AoA:
-  
-```{r reliability aoa, message=FALSE, warning = FALSE}  
+
+```{r reliability aoa}  
 
 split_half_cor_aoa <-function(lang_, clas_){
   
@@ -325,30 +302,30 @@ split_half_cor_aoa <-function(lang_, clas_){
   i<-i %>% filter(type=="word" & lexical_class == clas_) #get item data and filter by lexical class
   ids<-unique(i$item_id)
   ids<-lapply(X = ids, FUN = function(t) gsub(pattern = "item_", replacement = "", x = t, fixed = TRUE))
-
+  
   items<-get_instrument_data(language = lang_,form="WS", administrations = TRUE) #get instrument data and filter by item
   items<-items %>% filter(num_item_id %in% ids)
-
+  
   admin<-as.data.frame(unique(items$data_id))
   n<-nrow(admin) #corpus size in word tokens
   ind <- sample(c(TRUE, FALSE), n, replace=TRUE, prob=c(0.5, 0.5)) #randomly split administrations
-
+  
   adminfirstnum <- admin[ind, ]
   adminsecondnum <- admin[!ind, ] #create two groups of administrations
-
+  
   adminfirst<-items %>% filter(data_id %in% adminfirstnum) #filter items in administrations
   adminsecond<-items %>% filter(data_id %in% adminsecondnum)
-
+  
   aoafirst<- fit_aoa(adminfirst, method = "glmrob", proportion = 0.5) # get aoa for each group
   aoasecond<- fit_aoa(adminsecond, method = "glmrob", proportion = 0.5) # 
-
+  
   r<-cor(aoafirst$aoa, aoasecond$aoa, use="complete.obs", method="kendall") #measure r
   return(r)
 }
 
 ```
 
-```{r example reliability aoa, message=FALSE, warning = FALSE}  
+```{r example reliability aoa}  
 
 r_fr_nouns_aoa <- split_half_cor_aoa ("French (French)", "nouns")
 r_fr_adj_aoa <- split_half_cor_aoa ("French (French)", "adjectives")
@@ -363,36 +340,36 @@ r_it_verbs_aoa <- split_half_cor_aoa ("Italian", "verbs")
 r_it_other_aoa <- split_half_cor_aoa ("Italian", "other")
 r_it_fw_aoa <- split_half_cor_aoa ("Italian", "function_words")
 
-  
+
 ```
 French nouns Aoa:   `r r_fr_nouns_aoa`, `r sbformula(r_fr_nouns_aoa)` 
 French adjectives AoA: `r r_fr_adj_aoa`, `r sbformula(r_fr_adj_aoa)`
 French other AoA: `r r_fr_other_aoa`,`r sbformula(r_fr_other_aoa)`
 French function words AoA: `r r_fr_fw_aoa`,`r sbformula(r_fr_fw_aoa)`
-  
+
 Italian nouns Aoa:   `r r_it_nouns_aoa`, `r sbformula(r_it_nouns_aoa)` 
 Italian adjectives AoA: `r r_it_adj_aoa`, `r sbformula(r_it_adj_aoa)`
 Italian verbs AoA: `r r_it_verbs_aoa`, `r sbformula(r_it_verbs_aoa)` 
 Italian other AoA: `r r_it_other_aoa`,`r sbformula(r_it_other_aoa)`
 Italian function words AoA: `r r_it_fw_aoa`,`r sbformula(r_it_fw_aoa)`
- 
-   
+
+
 ### merge CHILDES and WORDBANK
 
 Merge aoa and childes db, get final db "CHILDES_WB_short":
-    
-```{r merge aoa and childes, message=FALSE, warning = FALSE}
+
+```{r merge aoa and childes}
 
 mergeAoaChildes<- function(dataAoa, corpus_frequency_){
   wblemmas<-unique(dataAoa$lemma) #unique wordbank lemmas
   corpus_frequency_ <- corpus_frequency_[corpus_frequency_$lemma %in% wblemmas, ]
   corpus_frequency_short <- corpus_frequency_ %>% 
-  ungroup() %>% 
+    ungroup() %>% 
     select(lemma, language, FrequencyLogMean, interceptmodel) #get only important columns 
-
+  
   CHILDES_WB <- merge(x=dataAoa, y=unique(corpus_frequency_short), by="lemma") #number of lemmas after merging: 474
   CHILDES_WB_short <- CHILDES_WB %>% select(lemma, FrequencyLogMean, interceptmodel, lexical_category, aoa, num_item_id) 
-
+  
   CHILDES_WB_short <- unique(CHILDES_WB_short)
   CHILDES_WB_short <- CHILDES_WB_short[!is.na(CHILDES_WB_short$aoa), ] 
   
@@ -415,7 +392,7 @@ db_fr_fw
 
 ```
 
-```{r example merge aoa and childes it, message=FALSE, warning = FALSE}
+```{r example merge aoa and childes it}
 
 db_it_nouns<- mergeAoaChildes(aoa_it$nouns, frequency_it)
 db_it_verbs<- mergeAoaChildes(aoa_it$verbs, frequency_it)
@@ -435,27 +412,27 @@ db_it_fw
 ### Plot frequency
 
 Plot frequency and aoa using log frequency and model intercept frequency:
-```{r plot, message=FALSE, warning = FALSE}
+```{r plot}
 
 plot_frequency1<-function(db){
-ggplot(db, 
-       aes(FrequencyLogMean, aoa, label=lemma)) + 
+  ggplot(db, 
+         aes(FrequencyLogMean, aoa, label=lemma)) + 
     geom_point()  +
     geom_text(aes(label=lemma),hjust=0, vjust=0) +xlim(0,0.6) #+ facet_wrap(~lexical_category, nrow=2)
 }
 
 plot_frequency2<-function(db){
-ggplot(db, 
-       aes(interceptmodel, aoa, label=lemma)) + 
-  geom_point()  +
-  geom_text(aes(label=lemma),hjust=0, vjust=0) # + facet_wrap(~lexical_category, nrow=2)
+  ggplot(db, 
+         aes(interceptmodel, aoa, label=lemma)) + 
+    geom_point()  +
+    geom_text(aes(label=lemma),hjust=0, vjust=0) # + facet_wrap(~lexical_category, nrow=2)
 }
 
 plot_frequency3<-function(db){
-ggplot(db, 
-       aes(x = interceptmodel, y = FrequencyLogMean, label = lemma)) + 
-  geom_point() + 
-  geom_smooth(method = "lm")# +   facet_wrap(~lexical_category)
+  ggplot(db, 
+         aes(x = interceptmodel, y = FrequencyLogMean, label = lemma)) + 
+    geom_point() + 
+    geom_smooth(method = "lm")# +   facet_wrap(~lexical_category)
 }
 
 
@@ -463,7 +440,7 @@ ggplot(db,
 
 
 
-```{r example plots, message=FALSE, warning = FALSE}
+```{r example plots}
 
 ggarrange(plot_frequency1(db_fr_nouns), plot_frequency1(db_fr_adj), plot_frequency1(db_fr_fw), plot_frequency1(db_fr_other), ncol=2, nrow=2, common.legend = TRUE, legend="right")
 
@@ -480,12 +457,12 @@ ggarrange(plot_frequency3(db_it_nouns), plot_frequency3(db_it_adj), plot_frequen
 
 ### Regression
 
-```{r reg, message=FALSE, warning = FALSE}
+```{r reg}
 
 regression_option1<-function(db){
-option1<-lm(aoa~ FrequencyLogMean, data=db) 
-option1
-return(summary(option1)$adj.r.squared)
+  option1<-lm(aoa~ FrequencyLogMean, data=db) 
+  option1
+  return(summary(option1)$adj.r.squared)
 }
 
 it_nouns_R2<-regression_option1(db_it_nouns)
@@ -528,7 +505,7 @@ French adjectives Adjusted R2 : `r fr_adj_R2`
 French other Adjusted R2 : `r fr_other_R2`
 French function words Adjusted R2 : `r fr_fw_R2`
 
-```{r final plot, message=FALSE, warning = FALSE}
+```{r final plot}
 r_fr_nouns_aoa*r_fr_nouns
 fr_nouns_R2
 
