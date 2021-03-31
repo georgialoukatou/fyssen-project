@@ -15,7 +15,7 @@ word_class = c("all", "nouns","adjectives","verbs","function_words","other")
 
 Rbind different corpora.
 
-```{r clean load data, results='hide'}
+```{r libraries, results='hide'}
 library(tidyverse)
 library(lme4)
 library(ggeffects)
@@ -28,12 +28,18 @@ library(data.table)
 library(gridExtra)
 library(here)
 
+source("get_wordbank.R")
+source("measure_frequency.R")
+
+```
+
+```{r load_data, message=FALSE}
+
 clean_childes <- function(corpus_) {
-  #annot <- c("xxx", "yyy", "www", "-", "'") 
-  #annotUtt <- filter(corpus_, lemma %in% annot) 
-  #annotUttID<- unique(annotUtt$utterance_id) 
-  #corpus_ <- filter(corpus_, !(utterance_id  %in% annotUttID))  #remove utterances with annotations - incomplete info
-  
+  annot <- c("xxx", "yyy", "www", "-", "'") 
+  annotUtt <- filter(corpus_, lemma %in% annot) 
+  annotUttID<- unique(annotUtt$utterance_id) 
+  corpus_ <- filter(corpus_, !(utterance_id  %in% annotUttID))  #remove utterances with annotations - incomplete info
   corpus_<-corpus_ %>% filter (speaker_code != "CHI") #remove target child utterances
   corpus_<-corpus_ %>% filter (pos != "PUNCT")  #remove punctuation 
   corpus_ %>% mutate(lemma = tolower(lemma))
@@ -41,7 +47,7 @@ clean_childes <- function(corpus_) {
 
 load_data <- function(language_list) {
   for (lang in language_list){
-    if (lang == "English")     { 
+    if (lang == "English (American)")     { 
       english=read_csv(here("data/Providence_spacy.csv"))
       english=clean_childes(english)
       english <- english %>% 
@@ -58,13 +64,13 @@ Clean utterances by removing puctuation, incomplete sentences and target-child s
 
 ```{r example, message=FALSE}
 
-language_list <- c("English")
-
 corpus<-load_data(language_list) 
+corpus <- lapply(corpus, clean_childes)
 
 lapply(corpus, function(x) {
   summary(x)
 })
+
 
 ```
 
@@ -72,11 +78,8 @@ lapply(corpus, function(x) {
 
 ```{r example frequency}
 
-source("measure_frequency.R")
-
 frequencies <- lapply(corpus, frequency_model) %>%
   bind_rows()
-
 
 # TEST1 frequency metric:
 frequencies %>% 
@@ -87,20 +90,70 @@ frequencies %>%
 frequencies %>% 
   arrange(desc(FrequencyLog))#: maximum values
 
+```
 
-source("get_wordbank.R")
-
+```{r get_aoas}
 aoas <- lapply(language_list, load_wordbank) %>%
   bind_rows()
+``` 
+
+```{r merge_frequency_aoas}
+d <- aoas %>%
+  group_by(language, lemma, lexical_class) %>%
+  summarise(aoa = aoa[1]) %>%
+  filter(!is.na(aoa)) %>%
+  mutate(language = ifelse(language == "French (French)", "French", language)) %>%
+  mutate(language = ifelse(language == "English (American)", "English", language)) %>%
+  left_join(frequencies %>% 
+              group_by(language, lemma) %>%
+              summarise(log_freq = FrequencyLogMean[1], 
+                        intercept_freq = interceptmodel[1]))
+
+```
+##########################################
+### Plot frequency
+
+Plot frequency and aoa using log frequency and model intercept frequency:
+```{r plot}
+
+plot_frequency1<-function(db){
+  ggplot(db, 
+         aes(log_freq, aoa, label=lemma)) + 
+    geom_point()  +
+    geom_text(aes(label=lemma),hjust=0, vjust=0) +xlim(0,0.6) + facet_wrap(~lexical_class, nrow=2)
+}
+
+plot_frequency2<-function(db){
+  ggplot(db, 
+         aes(intercept_freq, aoa, label=lemma)) + 
+    geom_point()  +
+    geom_text(aes(label=lemma),hjust=0, vjust=0) + facet_wrap(~lexical_class, nrow=2)
+}
+
+plot_frequency3<-function(db){
+  ggplot(db, 
+         aes(x = intercept_freq, y = log_freq, label = lemma)) + 
+    geom_point() + 
+    geom_smooth(method = "lm") +   facet_wrap(~lexical_class, nrow=2)
+}
+
+plot_frequency1(filter(d, language == "English"))
+
+ggplot(d, aes(x = log_freq, y = aoa, col = lexical_class)) + 
+  geom_point(alpha = .1) + 
+  geom_smooth(method = "lm") + 
+  facet_grid(language ~ lexical_class, scales = "free_x") + 
+  langcog::theme_mikabr() + 
+  langcog::scale_color_solarized() + 
+  theme(legend.position = "bottom") + 
+  xlab("Frequency (log)") + 
+  ylab("Age of Acquisition (months)")
 
 ```
 
-### WordBank lemmas and AoA. 
-
-
 ### Reliability_frequency: half-split and Spearman-Brown
 
-```{r reliability frequency}
+```{r reliability_frequency}
 
 # add lemmas of the first half not existing at the second half, with 1 
 same_size_df <- function(df1, df2) { 
@@ -161,7 +214,7 @@ sbformula <- function(r){  #adjust with spearman-brown formula
 ``` 
 
 
-```{r reliability-alpha}
+```{r reliability_alpha}
 
 cronbach_alpha <-function(dataAoa, corpus_frequency_){
   corpus_frequency_reliability <- corpus_frequency_ %>% 
@@ -188,7 +241,7 @@ cronbach_alpha <-function(dataAoa, corpus_frequency_){
 
 ```
 
-```{r example-reliability-frequency}
+```{r apply_reliability_frequency}
 
 reliabilities <- expand_grid(language = c("english"), 
                             word_class = c("all", "nouns","adjectives","verbs",
@@ -210,8 +263,6 @@ reliabilities <- expand_grid(language = c("english"),
                                         language == str_to_title(language)))))
 
 
-
-
 reliabilities %>%
   knitr::kable(digits = 2)
 
@@ -219,7 +270,7 @@ reliabilities %>%
 
 ### Reliability_AoA:
 
-```{r reliability aoa}  
+```{r reliability_aoa}  
 
 split_half_cor_aoa <-function(lang_, clas_){
   
@@ -251,6 +302,10 @@ split_half_cor_aoa <-function(lang_, clas_){
   return(r)
 }
 
+```
+
+```{r apply_reliability_aoa}
+
 reliability_aoa <- expand_grid(language = c("English (American)"), 
                             word_class = c("all", "nouns","adjectives","verbs",
                                            "function_words","other")) %>% 
@@ -265,132 +320,39 @@ reliability_aoa %>%
 
 ```
 
-### merge CHILDES and WORDBANK
+### Regression
 
-Merge aoa and childes db, get final db "CHILDES_WB_short":
-
-```{r merge aoa and childes}
-
-mergeAoaChildes<- function(lang_,clas_){
-  if (clas_ != "all"){
-                 aoas <- aoas %>% filter(lexical_class==clas_)}
-  dataAoa <-  aoas %>% filter(language==lang_)
-  if (lang_ == "English (American)"){
-                 lang_ <- "English"}
-  corpus_frequency_ <- frequencies %>% filter(language==lang_)
-  wblemmas<-unique(dataAoa$lemma) #unique wordbank lemmas
-  corpus_frequency_ <- corpus_frequency_[corpus_frequency_$lemma %in% wblemmas, ]
-  corpus_frequency_short <- corpus_frequency_ %>% 
-    ungroup() %>% 
-    select(lemma, language, FrequencyLogMean, interceptmodel) #get only important columns 
-  
-  CHILDES_WB <- merge(x=dataAoa, y=unique(corpus_frequency_short), by="lemma") #number of lemmas after merging: 474
-  CHILDES_WB_short <- CHILDES_WB %>% select(lemma, FrequencyLogMean, interceptmodel, lexical_category, aoa, num_item_id) 
-  
-  CHILDES_WB_short <- unique(CHILDES_WB_short)
-  CHILDES_WB_short <- CHILDES_WB_short[!is.na(CHILDES_WB_short$aoa), ] 
-  
-  return(CHILDES_WB_short)
-}
-
+```{r regression}
 
 regression_option1<-function(db){
-  option1<-lm(aoa~ FrequencyLogMean, data=db) 
-  option1
+  db <- db[!is.na(db$log_freq),]
+  option1<-lm(aoa~ log_freq, data=db) 
   return(summary(option1)$adj.r.squared)
 }
 
 
-list_=list()
-merge_data <-function(){
-for (lang_ in language_list){
-  for (clas_ in word_class){
-   nam <- paste(lang_, clas_, sep = "_")
-   nam <- gsub(" ", "", nam, fixed = TRUE)
-   nam <-noquote(nam)
-   df <- mergeAoaChildes(lang_, clas_)
-   regress=regression_option1(df)
-   df <- df %>% mutate(r2 = regress)
-   list_[[nam]] <-df
-  }
-}
-  return(list_)
-}
-```
 
-```{r example merge aoa and childes exam}
-
-dat<-merge_data()
+r2 <- expand_grid(lang = c("English"), 
+                            class = c("all", "nouns","adjectives","verbs",
+                                           "function_words","other")) %>% 
+  rowwise %>%
+   mutate(r2 = ifelse(class == "all", 
+                             regression_option1(filter(d, 
+                                                   language == lang)),
+                             regression_option1(filter(d, 
+                                                   language == lang, lexical_class == class)))) %>%
+  rename( language = lang,lexical_class = class) %>%
+  left_join(d)
 
 ```
 
-##########################################
-### Plot frequency
 
-Plot frequency and aoa using log frequency and model intercept frequency:
-```{r plot}
 
-plot_frequency1<-function(db){
-  ggplot(db, 
-         aes(FrequencyLogMean, aoa, label=lemma)) + 
-    geom_point()  +
-    geom_text(aes(label=lemma),hjust=0, vjust=0) +xlim(0,0.6) + facet_wrap(~lexical_category, nrow=2)
-}
 
-plot_frequency2<-function(db){
-  ggplot(db, 
-         aes(interceptmodel, aoa, label=lemma)) + 
-    geom_point()  +
-    geom_text(aes(label=lemma),hjust=0, vjust=0) + facet_wrap(~lexical_category, nrow=2)
-}
-
-plot_frequency3<-function(db){
-  ggplot(db, 
-         aes(x = interceptmodel, y = FrequencyLogMean, label = lemma)) + 
-    geom_point() + 
-    geom_smooth(method = "lm") +   facet_wrap(~lexical_category, nrow=2)
-}
-
-plot_frequency1(dat$`English(American)_all`)
-plot_frequency2(dat$`English(American)_all`)
-plot_frequency3(dat$`English(American)_all`)
-#ggarrange(plot_frequency1(db_fr_nouns), plot_frequency1(db_fr_adj), plot_frequency1(db_fr_fw), plot_frequency1(db_fr_other), ncol=2, nrow=2, common.legend = TRUE, legend="right")
-#ggpredict(lm(aoa~ FrequencyLogMean, data=db_it_nouns), c("FrequencyLogMean")) %>%  plot()
-#option2 <- glmer(value1 ~ aoa * FrequencyLogMean + (1|lexical_category), data=CHILDES_WB) 
-#anova(option2)
-#qplot( x = CHILDES_WB$intercept, fill = CHILDES_WB$`value == "produces"`, geom = "histogram", main = "Frequency distribution for WB items at 17 months",  xlab = "Frequency of WB items")
-
-```
 
 
 ```{r final plot}
-EnglishA_all<-unique(dat$`English(American)_all`$r2)
 
-```
-
-
-```{r final plot}
-d <- aoas %>%
-  group_by(language, lemma, lexical_class) %>%
-  summarise(aoa = aoa[1]) %>%
-  filter(!is.na(aoa)) %>%
-  mutate(language = ifelse(language == "French (French)", "French", language)) %>%
-  mutate(language = ifelse(language == "English (American)", "English", language)) %>%
-  left_join(frequencies %>% 
-              group_by(language, lemma) %>%
-              summarise(log_freq = FrequencyLogMean[1], 
-                        intercept_freq = interceptmodel[1]))
-
-
-ggplot(d, aes(x = log_freq, y = aoa, col = lexical_class)) + 
-  geom_point(alpha = .1) + 
-  geom_smooth(method = "lm") + 
-  facet_grid(language ~ lexical_class, scales = "free_x") + 
-  langcog::theme_mikabr() + 
-  langcog::scale_color_solarized() + 
-  theme(legend.position = "bottom") + 
-  xlab("Frequency (log)") + 
-  ylab("Age of Acquisition (months)")
 
 
 ```
