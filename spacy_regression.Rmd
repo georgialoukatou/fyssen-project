@@ -6,7 +6,6 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 language_list=c("English (American)")    #"English (American)"
-word_class = c("all", "nouns","adjectives","verbs","function_words","other")
 
 ```
 
@@ -27,11 +26,16 @@ library(rstatix)
 library(data.table)
 library(gridExtra)
 library(here)
+library(langcog)
+theme_set(theme_mikabr())
+font <- theme_mikabr()$text$family
 
 source("get_wordbank.R")
 source("measure_frequency.R")
 
 ```
+
+### Load data and clean CHILDES utterances by removing puctuation, incomplete sentences and target-child speech. 
 
 ```{r load_data, message=FALSE}
 
@@ -58,9 +62,6 @@ load_data <- function(language_list) {
 }
 
 ```
-### Clean CHILDES corpus. 
-
-Clean utterances by removing puctuation, incomplete sentences and target-child speech. 
 
 ```{r example, message=FALSE}
 
@@ -74,28 +75,23 @@ lapply(corpus, function(x) {
 
 ```
 
-
+### Measure frequency
 
 ```{r example frequency}
 
 frequencies <- lapply(corpus, frequency_model) %>%
   bind_rows()
-
-# TEST1 frequency metric:
-frequencies %>% 
-  group_by(target_child_id) %>% 
-  summarize (sum(rawFrequency)) #Test frequence: should be 1 for each child
-
-# TEST2 frequency metric:   
-frequencies %>% 
-  arrange(desc(FrequencyLog))#: maximum values
-
 ```
+
+
+### Measure aoas
 
 ```{r get_aoas}
 aoas <- lapply(language_list, load_wordbank) %>%
   bind_rows()
 ``` 
+
+### Merge all
 
 ```{r merge_frequency_aoas}
 d <- aoas %>%
@@ -110,10 +106,8 @@ d <- aoas %>%
                         intercept_freq = interceptmodel[1]))
 
 ```
-##########################################
-### Plot frequency
 
-Plot frequency and aoa using log frequency and model intercept frequency:
+### Plot frequency and aoa using log frequency and model intercept frequency
 ```{r plot}
 
 plot_frequency1<-function(db){
@@ -213,6 +207,7 @@ sbformula <- function(r){  #adjust with spearman-brown formula
 
 ``` 
 
+### Reliability_frequency: cronbach alpha
 
 ```{r reliability_alpha}
 
@@ -241,6 +236,8 @@ cronbach_alpha <-function(dataAoa, corpus_frequency_){
 
 ```
 
+### Measure reliabilities
+
 ```{r apply_reliability_frequency}
 
 reliabilities <- expand_grid(language = c("english"), 
@@ -268,7 +265,7 @@ reliabilities %>%
 
 ```  
 
-### Reliability_AoA:
+### Reliability_AoA
 
 ```{r reliability_aoa}  
 
@@ -329,8 +326,6 @@ regression_option1<-function(db){
   option1<-lm(aoa~ log_freq, data=db) 
   return(summary(option1)$adj.r.squared)
 }
-
-
 
 r2 <- expand_grid(lang = c("English"), 
                             class = c("all", "nouns","adjectives","verbs",
