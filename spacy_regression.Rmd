@@ -31,7 +31,6 @@ theme_set(theme_mikabr())
 font <- theme_mikabr()$text$family
 
 source("get_wordbank.R")
-source("measure_frequency.R")
 
 ```
 
@@ -78,9 +77,20 @@ lapply(corpus, function(x) {
 ### Measure frequency
 
 ```{r example frequency}
+source("measure_frequency.R")
 
 frequencies <- lapply(corpus, frequency_model) %>%
   bind_rows()
+
+# TEST1 frequency metric:
+frequencies %>% 
+  group_by(target_child_id) %>% 
+  summarize (sum(rawFrequency)) #Test frequence: should be 1 for each child
+
+# TEST2 frequency metric:   
+frequencies %>% 
+  arrange(desc(FrequencyLog))#: maximum values
+
 ```
 
 
@@ -103,12 +113,16 @@ d <- aoas %>%
   left_join(frequencies %>% 
               group_by(language, lemma) %>%
               summarise(log_freq = FrequencyLogMean[1], 
-                        intercept_freq = interceptmodel[1]))
+                        intercept_freq = interceptmodel[1])   )
 
 ```
 
 ### Plot frequency and aoa using log frequency and model intercept frequency
 ```{r plot}
+
+d<-d %>% 
+  filter(!is.na(log_freq)) 
+
 
 plot_frequency1<-function(db){
   ggplot(db, 
@@ -136,9 +150,9 @@ plot_frequency1(filter(d, language == "English"))
 ggplot(d, aes(x = log_freq, y = aoa, col = lexical_class)) + 
   geom_point(alpha = .1) + 
   geom_smooth(method = "lm") + 
-  facet_grid(language ~ lexical_class, scales = "free_x") + 
-  langcog::theme_mikabr() + 
-  langcog::scale_color_solarized() + 
+ # facet_grid(language ~ lexical_class, scales = "free_x") + 
+ # langcog::theme_mikabr() + 
+ # langcog::scale_color_solarized() + 
   theme(legend.position = "bottom") + 
   xlab("Frequency (log)") + 
   ylab("Age of Acquisition (months)")
@@ -259,6 +273,8 @@ reliabilities <- expand_grid(language = c("english"),
                                  filter(frequencies, 
                                         language == str_to_title(language)))))
 
+reliabilities <- reliabilities %>%
+    mutate(language = sub("english", "English(American)", language))
 
 reliabilities %>%
   knitr::kable(digits = 2)
@@ -303,7 +319,7 @@ split_half_cor_aoa <-function(lang_, clas_){
 
 ```{r apply_reliability_aoa}
 
-reliability_aoa <- expand_grid(language = c("English (American)"), 
+reliabilities_aoa <- expand_grid(language = c("English (American)"), 
                             word_class = c("all", "nouns","adjectives","verbs",
                                            "function_words","other")) %>% 
   rowwise %>%
@@ -312,8 +328,11 @@ reliability_aoa <- expand_grid(language = c("English (American)"),
                              split_half_cor_aoa(language, word_class)),
          split_half_aoa_sb = sbformula(split_half_aoa))
 
-reliability_aoa %>%
-  knitr::kable(digits = 2)
+reliabilities_aoa <- reliabilities_aoa %>%
+    mutate(language = sub(" ", "", language))
+
+#reliabilities_aoa %>%
+ # knitr::kable(digits = 2)
 
 ```
 
@@ -339,15 +358,42 @@ r2 <- expand_grid(lang = c("English"),
   rename( language = lang,lexical_class = class) %>%
   left_join(d)
 
+r2 <- r2 %>%
+    mutate(language = sub("English", "English(American)", language))
+
 ```
 
+```{r final data}
+r2_ <- r2 %>%
+  select(language, lexical_class, r2) %>%
+  rename(word_class = lexical_class) 
+  
 
+all_reliabilities <- reliabilities %>%
+  left_join(reliabilities_aoa) %>%
+    mutate(threshold_half = split_half_tau_sb * split_half_aoa_sb) %>%
+    mutate(threshold_alpha = cronbach_alpha * split_half_aoa_sb) 
 
+dr<- all_reliabilities %>% 
+  left_join(unique(r2_))
 
-
-
+```
 ```{r final plot}
+ggplot(filter(dr, word_class=="all"), aes(x = language, y =r2))
 
+
+
+
+
+ggplot(d, aes(x = log_freq, y = aoa, col = lexical_class)) + 
+  geom_point(alpha = .1) + 
+  geom_smooth(method = "lm") + 
+ # facet_grid(language ~ lexical_class, scales = "free_x") + 
+ # langcog::theme_mikabr() + 
+ # langcog::scale_color_solarized() + 
+  theme(legend.position = "bottom") + 
+  xlab("Frequency (log)") + 
+  ylab("Age of Acquisition (months)")
 
 
 ```

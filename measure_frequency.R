@@ -45,12 +45,4 @@ frequency_model <- function(corpus_) {
   return(corpus_frequency_)}
 
 
-# TEST1 frequency metric:
-frequencies %>% 
-  group_by(target_child_id) %>% 
-  summarize (sum(rawFrequency)) #Test frequence: should be 1 for each child
-
-# TEST2 frequency metric:   
-frequencies %>% 
-  arrange(desc(FrequencyLog))#: maximum values
 
