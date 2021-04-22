@@ -5,8 +5,10 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-language_list=c("italian", "english")  
+language_list=c("italian", "english", "french")  
 
+
+####TODO: add to aoa-pipeline: clean childes, intercept frequency
 ```
 
 
@@ -27,6 +29,7 @@ library(data.table)
 library(gridExtra)
 library(here)
 library(langcog)
+library(modelr)
 #theme_set(theme_mikabr())
 #font <- theme_mikabr()$text$family
 
@@ -38,6 +41,7 @@ source("get_wordbank.R")
 
 ```{r load_data, message=FALSE}
 
+#add this function to aoa
 clean_childes <- function(corpus_) {
   annot <- c("xxx", "yyy", "www", "-", "'") 
   annotUtt <- filter(corpus_, lemma %in% annot) 
@@ -62,15 +66,15 @@ load_data <- function(language_list) {
       italian <- italian %>% 
             mutate(language = "italian")
     }
- #   if (lang == "french")     { 
-  #    french=read_csv(here("data/french_1403.csv"))
-   #   french=clean_childes(french)
-    #  french <- french %>% 
-     #       mutate(language = "french")
-    #}
+    if (lang == "french")     { 
+      french=read_csv(here("data/french_1403.csv"))
+      french=clean_childes(french)
+      french <- french %>% 
+            mutate(language = "french")
+    }
   }
- # return(list(english = data.table(english), italian = data.table(italian), french = data.table(french)))
-  return(list(english = data.table(english), italian = data.table(italian)))
+  return(list(english = data.table(english), italian = data.table(italian), french = data.table(french)))
+  #return(list(english = data.table(english), italian = data.table(italian)))
 
   }
 
@@ -91,7 +95,7 @@ lapply(corpus, function(x) {
 ### Measure frequency
 
 ```{r example frequency}
-source("measure_frequency.R")
+source("measure_frequency.R") # add interecept function to aoa-pipeline
 
 frequencies <- lapply(corpus, frequency_model) %>%
   bind_rows()
@@ -110,7 +114,7 @@ frequencies <- lapply(corpus, frequency_model) %>%
 ### Measure aoas
 
 ```{r get_aoas}
-language_list_=c("Italian", "English (American)")  
+language_list_=c("Italian", "English (American)", "French (French)")  
 
 aoas <- lapply(language_list_, load_wordbank) %>%
   bind_rows()
@@ -123,7 +127,7 @@ d <- aoas %>%
   group_by(language, lemma, lexical_class) %>%
   summarise(aoa = aoa[1]) %>%
   filter(!is.na(aoa)) %>%
-  #mutate(language = ifelse(language == "French (French)", "french", language)) %>%
+  mutate(language = ifelse(language == "French (French)", "french", language)) %>%
   mutate(language = ifelse(language == "English (American)", "english", language)) %>%
   mutate(language = ifelse(language == "Italian", "italian", language)) %>%
   left_join(frequencies %>% 
@@ -144,6 +148,9 @@ plot_frequency1<-function(db, language){
   ggplot(db, 
          aes(log_freq, aoa, label=lemma)) + 
     geom_point()  +
+    geom_smooth() + 
+    geom_point(alpha=.1)+
+    ggrepel::geom_label_repel()+
     geom_text(aes(label=lemma),hjust=0, vjust=0)  +
     xlim(0,0.6) + 
     facet_wrap(~lexical_class, nrow=2) +
@@ -169,6 +176,7 @@ plot_frequency3<-function(db){
 ```{r freq_plot_1}
 plot_frequency1(filter(d, language == "english"), "english")
 plot_frequency1(filter(d, language == "italian"), "italian")
+plot_frequency1(filter(d, language == "french"), "french")
 
 ```
 
@@ -285,7 +293,7 @@ cronbach_alpha <-function(dataAoa, corpus_frequency_){
 
 ```{r apply_reliability_frequency}
 
-reliabilities <- expand_grid(language = c( "english", "italian"), 
+reliabilities <- expand_grid(language = c( "english", "italian", "french"), 
                             word_class = c("all", "nouns","adjectives","verbs",
                                            "function_words","other")) %>% 
   rowwise %>%
@@ -306,6 +314,10 @@ reliabilities <- expand_grid(language = c( "english", "italian"),
 
 reliabilities %>%
   knitr::kable(digits = 2)
+reliabilities <- reliabilities %>%
+    mutate(language = sub("english", "English (American)", language)) %>%
+    mutate(language = sub("italian", "Italian", language)) %>%
+    mutate(language = sub("french", "French (French)", language))
 
 ```  
 
@@ -320,6 +332,13 @@ split_half_cor_aoa <-function(lang_, clas_){
   if (clas_ != ""){
     i<-i %>% filter(lexical_class==clas_)  
     }
+  if (lang_ == "French (French)") {
+   i <- filter(i, item_id !="item_514")
+   i <- filter(i, item_id !="item_628")
+   i <- filter(i, item_id !="item_601")
+   i <- filter(i, item_id !="item_627")
+   i <- filter(i, item_id !="item_452")
+    }  
   ids<-unique(i$item_id)
   ids<-lapply(X = ids, FUN = function(t) gsub(pattern = "item_", replacement = "", x = t, fixed = TRUE))
   
@@ -347,7 +366,7 @@ split_half_cor_aoa <-function(lang_, clas_){
 
 ```{r apply_reliability_aoa}
 
-reliabilities_aoa <- expand_grid(language = c("English (American)", "Italian"), 
+reliabilities_aoa <- expand_grid(language = c("French (French)","English (American)", "Italian"),
                             word_class = c("all", "nouns","adjectives","verbs",
                                            "function_words","other")) %>% 
   rowwise %>%
@@ -356,12 +375,6 @@ reliabilities_aoa <- expand_grid(language = c("English (American)", "Italian"),
                              split_half_cor_aoa(language, word_class)),
          split_half_aoa_sb = sbformula(split_half_aoa))
 
-reliabilities_aoa <- reliabilities_aoa %>%
-    mutate(language = sub("English (American)", "english", language))
-
-reliabilities_aoa <- reliabilities_aoa %>%
-    mutate(language = sub("Italian", "italian", language))
-    
 reliabilities_aoa %>%
   knitr::kable(digits = 2)
 
@@ -369,7 +382,7 @@ reliabilities_aoa %>%
 
 ### Regression
 
-```{r regression}
+```{r main_regression}
 
 regression_option1<-function(db){
   db <- db[!is.na(db$log_freq),]
@@ -377,7 +390,7 @@ regression_option1<-function(db){
   return(summary(option1)$adj.r.squared)
 }
 
-r2 <- expand_grid(lang = c("english", "italian"), 
+r2 <- expand_grid(lang = c("english", "italian", "french"), 
                             class = c("all", "nouns","adjectives","verbs",
                                            "function_words","other")) %>% 
   rowwise %>%
@@ -389,35 +402,88 @@ r2 <- expand_grid(lang = c("english", "italian"),
   rename( language = lang,lexical_class = class) %>%
   left_join(d)
 
-# r2 <- r2 %>%
- #  mutate(language = sub("english", "English(American)", language))
-    
+
+r2 %>%
+  knitr::kable(digits = 2)
 
 ```
 
-```{r final data}
-r2_ <- r2 %>%
-  select(language, lexical_class, r2) %>%
-  rename(word_class = lexical_class) 
-  
+```{r cross_validate_regression}
 
+#divide into training and test set
+### (1)Use this formula after freezing all coefficients: 1 - (sum of squared errors) / (sum of squares total). The denominator is (𝑛−1)× the observed variance of 𝑌 in the holdout sample.
+### (2)1- sum squared differences between the predicted and observed value / sum of squared differences between the observed and overall mean value
+### (3)Calculate mean square error and variance of each group 
+
+xvalr2 <- function(d){
+n<-nrow(d) #df size
+ind <- sample(c(TRUE, FALSE), n, replace=TRUE, prob=c(0.9, 0.1)) #randomly split lines
+train <- d[ind, ] 
+test <- d[!ind, ]
+model <- lm(aoa~ log_freq, data=train) 
+predictions <- predict(model, test)
+#crossvalr2 <- 1-(sum((test$aoa - predictions)^2)/(n-1)*var(test$aoa))  (1)
+#crossvalr2 <- 1-(sum((predictions - test$aoa)^2)/sum((test$aoa - mean(test$aoa))^2) ) (2)
+#crossvalr2 <- 1-(sum((test$aoa - predictions)^2)/var(test$aoa))   (3) 
+crossvalr2 <- rsquare(model, test)
+return(crossvalr2)
+}
+
+crossvalr2 <- expand_grid(lang = c("english", "italian", "french"), 
+                            class = c("all", "nouns","adjectives","verbs",
+                                           "function_words","other")) %>% 
+  rowwise %>%
+   mutate(crossvalr2 = ifelse(class == "all", 
+                             xvalr2(filter(d, 
+                                                   language == lang)),
+                             xvalr2(filter(d, 
+                                                   language == lang, lexical_class == class)))) %>%
+  rename( language = lang,lexical_class = class) 
+
+crossvalr2 %>%
+  knitr::kable(digits = 2)
+```
+
+```{r final_data_r2}
+
+all_r2 <- r2 %>%
+  left_join(crossvalr2) %>%
+  select(language, lexical_class, r2, crossvalr2) %>%
+  distinct() %>%
+  rename(word_class = lexical_class) %>%
+  mutate(language = sub("english", "English (American)", language)) %>%
+  mutate(language = sub("italian", "Italian", language)) %>%
+  mutate(language = sub("french", "French (French)", language))
+
+all_r2 %>%
+  knitr::kable(digits = 2)
+```
+
+```{r final_data_reliab}  
 all_reliabilities <- reliabilities %>%
   left_join(reliabilities_aoa) %>%
     mutate(threshold_half = split_half_tau_sb * split_half_aoa_sb) 
     # %>%
     # mutate(threshold_alpha = cronbach_alpha * split_half_aoa_sb) 
 
-dr<- all_reliabilities %>% 
-  left_join(unique(r2_))
+all_reliabilities %>%
+  knitr::kable(digits = 2)
+```
 
+```{r final_merged_data} 
+dr<- all_reliabilities %>% 
+  left_join(unique(all_r2)) 
+
+dr %>%
+  knitr::kable(digits = 2)
 ```
 
 ```{r final_plot_2}
 
 ggplot(dr, aes(x = word_class, y=r2, fill=word_class)) + 
   geom_bar(stat="identity") + 
-  geom_errorbar(data  = dr, aes(y=threshold_half, ymax=threshold_half, ymin=threshold_half, col=word_class)) + 
   facet_grid(rows = vars(language)) +
+  geom_errorbar(data  = dr, aes(y=threshold_half, ymax=threshold_half, ymin=threshold_half, col=word_class)) + 
   theme(legend.position = "bottom") + 
   xlab("Lexical class") + 
   ylab("R2") + 
