@@ -338,6 +338,7 @@ split_half_cor_aoa <-function(lang_, clas_){
    i <- filter(i, item_id !="item_601")
    i <- filter(i, item_id !="item_627")
    i <- filter(i, item_id !="item_452")
+   i <- filter(i, item_id !="item_599")
     }  
   ids<-unique(i$item_id)
   ids<-lapply(X = ids, FUN = function(t) gsub(pattern = "item_", replacement = "", x = t, fixed = TRUE))
@@ -401,10 +402,6 @@ r2 <- expand_grid(lang = c("english", "italian", "french"),
                                                    language == lang, lexical_class == class)))) %>%
   rename( language = lang,lexical_class = class) %>%
   left_join(d)
-
-
-r2 %>%
-  knitr::kable(digits = 2)
 
 ```
 
